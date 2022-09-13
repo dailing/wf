@@ -2,11 +2,16 @@ import hashlib
 import inspect
 import pickle
 import types
+import uuid
 from functools import cached_property, partial
 from pprint import pprint
 from typing import Dict, List, Iterable
 
-import redis
+from .api.worker import *
+from .util.default_cfg import post
+from .util.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class Task:
@@ -75,8 +80,11 @@ def __repr__(self) -> str:
 
 
 class WF:
-    def __init__(self):
+    def __init__(self, name=None):
         self.tasks: List[Task] = []
+        if name is None:
+            name = 'unnamed-' + uuid.uuid4().hex
+        self.name = name
 
     def add_task(self, task):
         if isinstance(task, Task):
@@ -143,4 +151,6 @@ class WF:
         dot.render('output', format='pdf')
 
     def serve(self):
-        r = redis.Redis(host='localhost', port=6379, db=0)
+        req = REQ_worker_get_task(task_name=self.name)
+        resp = post('/api/worker/get_task', req)
+        logger.info(resp)

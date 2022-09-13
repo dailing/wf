@@ -1,6 +1,3 @@
-from functools import partial
-from pprint import pprint
-
 from wf.tasks import *
 
 
@@ -21,8 +18,8 @@ if __name__ == '__main__':
 
     wf = WF()
     wf.add_task(tasks)
-
     wf.graph()
-    pprint(wf.output_map)
-    pprint(wf.dependent_path('m'))
+    wf.serve()
+    # pprint(wf.output_map)
+    # pprint(wf.dependent_path('m'))
     print(wf.execute('m', v=1))
