@@ -1,0 +1,7 @@
+require:
+  - 'a'
+  - 'b'
+output:
+  - c
+produce:
+  - c

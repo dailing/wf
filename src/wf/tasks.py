@@ -1,11 +1,10 @@
 import hashlib
 import inspect
 import pickle
+import time
 import types
 import uuid
-from functools import cached_property, partial
-from pprint import pprint
-from typing import Dict, List, Iterable
+from functools import cached_property, partial, lru_cache
 
 from .api.worker import *
 from .util.default_cfg import post
@@ -63,10 +62,10 @@ class Task:
 
     def __call__(self, **kwargs):
         result = self.func(**kwargs)
-        if not isinstance(result, Iterable):
-            result = (result,)
         if self.produce is None:
             return None
+        if len(self.produce) == 1:
+            result = (result,)
         r_dict = {}
         for k, v in zip(self.produce, result):
             if k == '_':
@@ -80,11 +79,13 @@ def __repr__(self) -> str:
 
 
 class WF:
-    def __init__(self, name=None):
+    def __init__(self, name=None, output=None, require=None):
         self.tasks: List[Task] = []
         if name is None:
             name = 'unnamed-' + uuid.uuid4().hex
         self.name = name
+        self.output = output
+        self.require = require
 
     def add_task(self, task):
         if isinstance(task, Task):
@@ -102,36 +103,47 @@ class WF:
                 produce[o] = t
         return produce
 
-    def dependent_path(self, output) -> List[Task]:
-        if output not in self.output_map:
-            return []
-        task = self.output_map[output]
+    @lru_cache
+    def dependent_path(self, _output) -> List[Task]:
+        logger.info(f'find dependent path for {_output}')
         dependency = []
-        for req in task.require:
-            for partial_dep in self.dependent_path(req):
-                if partial_dep not in dependency:
-                    dependency.append(partial_dep)
-        dependency.append(task)
+        for output in _output:
+            if output not in self.output_map:
+                return []
+            task = self.output_map[output]
+            for req in task.require:
+                for partial_dep in self.dependent_path((req,)):
+                    if partial_dep not in dependency:
+                        dependency.append(partial_dep)
+            dependency.append(task)
         return dependency
 
-    def execute(self, output=None, **kwargs):
-        data = kwargs
-        exec_list = self.dependent_path(output)
-        for task in exec_list:
-            task.load()
-            print('executing ', task)
-            exec_kwargs = {}
-            for d, k in task.require_map.items():
-                exec_kwargs[k] = data[d]
-            print(task, exec_kwargs)
-            res = task(**exec_kwargs)
-            data.update(res)
-            pprint(res)
-        if isinstance(output, str):
-            return data[output]
-        if isinstance(output, list) or isinstance(output, tuple):
-            return {k: data[k] for k in output}
-        raise Exception('FUCK')
+    def execute(self, output, loops=1, **kwargs):
+        logger.debug(f'executing {output} {type(output)}')
+        exec_list = self.dependent_path(tuple(output))
+        for iter_loop in range(loops):
+            context = kwargs
+            for task in exec_list:
+                task.load()
+                # print('executing ', task)
+                exec_kwargs = {}
+                for d, k in task.require_map.items():
+                    exec_kwargs[k] = context[d]
+                # print(task, exec_kwargs)
+                res = task(**exec_kwargs)
+                context.update(res)
+                # pprint(res)
+            # if isinstance(output, str):
+            #     return data[output]
+            # if isinstance(output, list) or isinstance(output, tuple):
+            yield {k: context[k] for k in output}
+
+    def __call__(self, **kwargs):
+        res = next(self.execute(output=self.output, **kwargs))
+        res = tuple([res[o] for o in self.output])
+        if len(self.output) == 1:
+            return res[0]
+        return res
 
     def graph(self):
         import graphviz
@@ -150,7 +162,30 @@ class WF:
                 dot.edge(t.name, output)
         dot.render('output', format='pdf')
 
+
+class WFServe:
+    def __init__(self, wf: WF):
+        self.wf = wf
+
     def serve(self):
-        req = REQ_worker_get_task(task_name=self.name)
-        resp = post('/api/worker/get_task', req)
-        logger.info(resp)
+        while True:
+            try:
+                req = REQ_worker_get_task(task_name=self.wf.name)
+                resp = post('/api/worker/get_task', req, List[RESP_worker_get_task])
+                if len(resp) <= 0:
+                    time.sleep(3)
+                for task in resp:
+                    task: RESP_worker_get_task
+                    result = self.wf.execute(
+                        task.output,
+                        task.loop,
+                        **task.kwargs
+                    )
+                    logger.info(self.wf(**task.kwargs))
+                    for r in result:
+                        logger.debug(r)
+                        # TODO add result to DB
+            except Exception as e:
+                print(e)
+                time.sleep(3)
+                # raise e
