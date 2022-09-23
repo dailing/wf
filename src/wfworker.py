@@ -34,6 +34,7 @@ class WorkflowDef(BaseModel):
     require: List[str]
     output: List[str]
     produce: List[str] = None
+    dump: List[str] | None = None
 
 
 def load_workflow(path):

@@ -1,3 +1,4 @@
+import base64
 import hashlib
 import inspect
 import pickle
@@ -73,6 +74,9 @@ class Task:
             r_dict[k] = v
         return r_dict
 
+    def __repr__(self):
+        return f'<{self.name}>'
+
 
 def __repr__(self) -> str:
     return f'Task <{self.name}> {self.require}-->{self.produce}'
@@ -119,24 +123,30 @@ class WF:
         return dependency
 
     def execute(self, output, loops=1, **kwargs):
-        logger.debug(f'executing {output} {type(output)}')
+        logger.debug(f'executing workflow <{self.name}> {output} {type(output)}')
         exec_list = self.dependent_path(tuple(output))
         for iter_loop in range(loops):
             context = kwargs
-            for task in exec_list:
-                task.load()
-                # print('executing ', task)
-                exec_kwargs = {}
-                for d, k in task.require_map.items():
-                    exec_kwargs[k] = context[d]
-                # print(task, exec_kwargs)
-                res = task(**exec_kwargs)
-                context.update(res)
-                # pprint(res)
-            # if isinstance(output, str):
-            #     return data[output]
-            # if isinstance(output, list) or isinstance(output, tuple):
-            yield {k: context[k] for k in output}
+            try:
+                for task in exec_list:
+                    logger.info(f'executing {task}')
+                    task.load()
+                    # print('executing ', task)
+                    exec_kwargs = {}
+                    for d, k in task.require_map.items():
+                        exec_kwargs[k] = context[d]
+                    # print(task, exec_kwargs)
+                    res = task(**exec_kwargs)
+                    logger.info(f'result {res}')
+                    context.update(res)
+                    # pprint(res)
+                # if isinstance(output, str):
+                #     return data[output]
+                # if isinstance(output, list) or isinstance(output, tuple):
+            except BreakLoopException:
+                break
+            finally:
+                yield {k: context[k] for k in output},
 
     def __call__(self, **kwargs):
         res = next(self.execute(output=self.output, **kwargs))
@@ -171,7 +181,8 @@ class WFServe:
         while True:
             try:
                 req = REQ_worker_get_task(task_name=self.wf.name)
-                resp = post('/api/worker/get_task', req, List[RESP_worker_get_task])
+                resp: List[RESP_worker_get_task] = \
+                    post('/api/worker/get_task', req, List[RESP_worker_get_task])
                 if len(resp) <= 0:
                     time.sleep(3)
                 for task in resp:
@@ -181,11 +192,28 @@ class WFServe:
                         task.loop,
                         **task.kwargs
                     )
-                    logger.info(self.wf(**task.kwargs))
-                    for r in result:
+                    for idx, r in enumerate(result):
                         logger.debug(r)
                         # TODO add result to DB
+                        post('/api/worker/add_result', REQ_worker_add_result(
+                            result=TaskResult(
+                                result_type='pickle',
+                                payload=base64.b64encode(pickle.dumps(r)),
+                                task_id=task.task_id,
+                                n_iter=idx,
+                                status=TaskStatus.RUNNING
+                            ),
+                        ))
+                    # finished work,send FINISH status
+                    post('/api/worker/add_result', REQ_worker_add_result(
+                        result=TaskResult(
+                            result_type='EOT',
+                            task_id=task.task_id,
+                            n_iter=-1,
+                            status=TaskStatus.FINISHED
+                        ),
+                    ))
             except Exception as e:
                 print(e)
                 time.sleep(3)
-                # raise e
+                raise e

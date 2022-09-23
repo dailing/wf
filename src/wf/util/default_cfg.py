@@ -4,10 +4,10 @@ from .logger import get_logger
 
 logger = get_logger(__name__)
 
-url_base = 'http://192.168.123.161:8000'
+# url_base = 'http://192.168.123.161:8000'
 
 
-# url_base = 'http://127.0.0.1:8000'
+url_base = 'http://127.0.0.1:30080'
 
 
 def post(url, data: BaseModel, resp_type=None):

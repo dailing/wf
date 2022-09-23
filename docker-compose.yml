@@ -1,0 +1,50 @@
+services:
+
+  mongodb:
+    image: mongo:5.0.6
+    restart: always
+    volumes:
+      - ./datadir:/data/db
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: example
+    ports:
+      - "37017:27017"
+
+  redis:
+    image: redis
+    restart: always
+    ports:
+      - 6379:6379
+
+  backend:
+    build: docker/backend
+    depends_on:
+      - mongodb
+      - redis
+    ports:
+      - "30080:8000"
+    volumes:
+      - ./src:/src
+    working_dir: /src/
+    environment:
+      PYTHONPATH: /src
+    command: python -m uvicorn server:app --reload --no-access-log --port 8000 --host 0.0.0.0
+#    restart: always
+
+#  test:
+#    build: docker/backend
+#    depends_on:
+#      - mongodb
+#    volumes:
+#      - ./src:/src
+#      - ./test:/test
+#    environment:
+#      PYTHONPATH: /src
+#    working_dir: /test
+#    entrypoint:
+#      - "python"
+#      - "-m"
+#      - "unittest"
+#    restart: always
+
