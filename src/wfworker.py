@@ -15,7 +15,7 @@ import os.path
 import sys
 from importlib.machinery import SourceFileLoader
 from typing import List
-
+import importlib.util as ilu
 import yaml
 from pydantic import BaseModel
 
@@ -42,19 +42,26 @@ def load_workflow(path):
     files = os.listdir(path)
     wf_cfg = {}
     if 'workflow.yaml' in files:
-        wf_cfg = yaml.safe_load(open(os.path.join(path, 'workflow.yaml')).read())
+        with open(os.path.join(path, 'workflow.yaml')) as f:
+            wf_cfg = yaml.safe_load(f.read())
     else:
         return None
     logger.info(f'loading path {path}')
     pyfiles = list(filter(lambda x: x.endswith('.py'), files))
     sub_workflow = list(filter(lambda x: os.path.isdir(x), files))
     logger.info(sub_workflow)
-    _, wf_name = os.path.split(path)
+    parent_path, wf_name = os.path.split(path)
     # print(files)
     tasks = []
     for f in pyfiles:
         task_name = f[:-3]
-        foo = SourceFileLoader(task_name, os.path.join(path, f)).load_module()
+        # foo = SourceFileLoader(task_name, os.path.join(path, f)).load_module()
+        spec = ilu.spec_from_file_location(wf_name, os.path.join(path, f), submodule_search_locations=[path])
+        logger.info(f'{spec}, {wf_name}, {parent_path}')
+        your_lib = ilu.module_from_spec(spec)
+        spec.loader.exec_module(your_lib)
+
+        foo = your_lib
         if not hasattr(foo, 'task'):
             continue
         func = getattr(foo, 'task')

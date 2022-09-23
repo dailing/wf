@@ -122,10 +122,10 @@ class WF:
             dependency.append(task)
         return dependency
 
-    def execute(self, output, loops=1, **kwargs):
+    def execute(self, output, loop=1, **kwargs):
         logger.debug(f'executing workflow <{self.name}> {output} {type(output)}')
         exec_list = self.dependent_path(tuple(output))
-        for iter_loop in range(loops):
+        for iter_loop in range(loop):
             context = kwargs
             try:
                 for task in exec_list:
@@ -146,7 +146,7 @@ class WF:
             except BreakLoopException:
                 break
             finally:
-                yield {k: context[k] for k in output},
+                yield {k: context[k] for k in output}
 
     def __call__(self, **kwargs):
         res = next(self.execute(output=self.output, **kwargs))
@@ -177,8 +177,13 @@ class WFServe:
     def __init__(self, wf: WF):
         self.wf = wf
 
-    def serve(self):
+    def serve(self, n=-1):
         while True:
+            logger.info(n)
+            if n == 0:
+                break
+            elif n > 0:
+                n = n - 1
             try:
                 req = REQ_worker_get_task(task_name=self.wf.name)
                 resp: List[RESP_worker_get_task] = \
@@ -189,12 +194,10 @@ class WFServe:
                     task: RESP_worker_get_task
                     result = self.wf.execute(
                         task.output,
-                        task.loop,
                         **task.kwargs
                     )
                     for idx, r in enumerate(result):
-                        logger.debug(r)
-                        # TODO add result to DB
+                        logger.debug(f'{idx}, {r}')
                         post('/api/worker/add_result', REQ_worker_add_result(
                             result=TaskResult(
                                 result_type='pickle',

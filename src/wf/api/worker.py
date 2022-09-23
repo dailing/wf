@@ -21,7 +21,6 @@ class TaskBase(BaseModel):
     task_name: str
     kwargs: Dict[str, Any]
     output: List[str]
-    loop: int = 1
     task_id: str = ''
 
 
